@@ -1,0 +1,74 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+
+// Thông số kết nối WiFi
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
+
+// Thông số MQTT
+const char* mqtt_server = "broker.mqttdashboard.com";
+const char* mqtt_topic = "wokwi-weather";
+const char* mqtt_client_id = "micropython-weather-demo";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+DHT dht(15, DHT22); // Chân GPIO 15
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  
+  // Kết nối WiFi
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(100);
+    Serial.print(".");
+  }
+  Serial.println(" Connected!");
+
+  // Kết nối MQTT
+  client.setServer(mqtt_server, 1883);
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT server...");
+    if (client.connect(mqtt_client_id)) {
+      Serial.println(" connected!");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+}
+
+void loop() {
+  static String prev_weather = "";
+  
+  // Đo lường thời tiết
+  dht.begin();
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+  
+  // Kiểm tra giá trị đo lường
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  // Tạo thông điệp
+  String message = String("{\"temp\":") + temperature + ",\"humidity\":" + humidity + "}";
+  
+  // Gửi thông điệp nếu có thay đổi
+  if (message != prev_weather) {
+    Serial.println("Updated!");
+    Serial.printf("Reporting to MQTT topic %s: %s\n", mqtt_topic, message.c_str());
+    client.publish(mqtt_topic, message.c_str());
+    prev_weather = message;
+  } else {
+    Serial.println("No change");
+  }
+
+  client.loop(); // Giữ kết nối MQTT
+  delay(1000); // Đợi 1 giây
+}
